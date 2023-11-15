@@ -1,4 +1,4 @@
-package com.softyoumobileapp.detectorseales.ui.theme
+package com.softyoumobileapp.detectorseales.view.theme
 
 import androidx.compose.ui.graphics.Color
 

@@ -1,4 +1,4 @@
-package com.softyoumobileapp.detectorseales
+package com.softyoumobileapp.detectorseales.view
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -10,7 +10,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
-import com.softyoumobileapp.detectorseales.ui.theme.DetectorSeñalesTheme
+import com.softyoumobileapp.detectorseales.view.theme.DetectorSeñalesTheme
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
