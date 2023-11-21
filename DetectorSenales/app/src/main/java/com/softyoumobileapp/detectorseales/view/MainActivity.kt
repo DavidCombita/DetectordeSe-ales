@@ -2,7 +2,6 @@ package com.softyoumobileapp.detectorseales.view
 
 import android.Manifest
 import android.app.Activity
-import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -11,15 +10,11 @@ import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Log
-import android.widget.Toast
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
-import androidx.activity.result.ActivityResult
-import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AppCompatActivity
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -27,12 +22,14 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBox
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.Divider
@@ -43,25 +40,37 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.ActivityCompat
-import androidx.core.content.ContentProviderCompat.requireContext
 import androidx.core.content.ContextCompat
+import com.softyoumobileapp.detectorseales.data.models.SignalTransit
 import com.softyoumobileapp.detectorseales.view.theme.DetectorSeñalesTheme
+import com.softyoumobileapp.detectorseales.view.viewmodel.MainViewModel
+import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
+import javax.inject.Inject
 
+@AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
-    private var bitmap: Bitmap? = null
-    val REQUEST_IMAGE_CAPTURE = 1
+    @Inject
+    lateinit var viewModel: MainViewModel
 
     val pickMedia = registerForActivityResult(
         ActivityResultContracts.PickVisualMedia()
@@ -69,14 +78,8 @@ class MainActivity : ComponentActivity() {
         // Callback is invoked after the user selects a media item or closes the
         // photo picker.
         if (uri != null) {
-            val inputStream: InputStream? = contentResolver.openInputStream(uri)
-            bitmap = BitmapFactory.decodeStream(inputStream)
-            //TODO pasarlo al viewmodel
-            if (bitmap != null) {
-                val outputStream = ByteArrayOutputStream()
-                bitmap!!.compress(Bitmap.CompressFormat.JPEG, 80, outputStream)
-                val byteArray: ByteArray = outputStream.toByteArray()
-            }
+            val bitmap = BitmapFactory.decodeStream(contentResolver.openInputStream(uri))
+            viewModel.predictImage(bitmap, this.applicationContext)
         } else {
             Log.d("PhotoPicker", "No media selected")
         }
@@ -86,13 +89,7 @@ class MainActivity : ComponentActivity() {
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == Activity.RESULT_OK) {
                 val imageBitmap = result.data?.extras?.get("data") as? Bitmap
-                //TODO pasarlo al viewmodel
-                if (imageBitmap != null) {
-                    val outputStream = ByteArrayOutputStream()
-                    imageBitmap.compress(Bitmap.CompressFormat.JPEG, 80, outputStream)
-                    val byteArray: ByteArray = outputStream.toByteArray()
-                    Log.d("PhotoPicker", "Seleccionada una nueva imagen: ${byteArray}")
-                }
+                viewModel.predictImage(imageBitmap, this.applicationContext)
             } else {
                 Log.d("PhotoPicker camera", "Captura de imagen cancelada")
             }
@@ -102,6 +99,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
+            // Estado para controlar la visibilidad del diálogo
+            val alert by viewModel.signalPre.collectAsState()
+
             DetectorSeñalesTheme {
                 Scaffold(
                     topBar = {
@@ -133,12 +133,61 @@ class MainActivity : ComponentActivity() {
                             color = Color.White
                         )
                         val context = LocalContext.current
+
                         ScreenOrganisms(onClickSelectedCamera = { requestCameraPermission(context) },
                             onClickSelectedGallery = { selectPictureGalery() })
+
+                        if(alert != null){
+                            ShowPictureDialog(
+                                onDismiss = { viewModel.clearAlert() },
+                                alert!!.id,
+                                alert!!.name,
+                                alert!!.description
+                            )
+                        }
                     }
                 }
             }
         }
+    }
+
+    @Composable
+    fun ShowPictureDialog(
+        onDismiss: () -> Unit,
+        id: Int,
+        tittle: String,
+        description: String
+    ) {
+        val context = LocalContext.current
+        val imageId = context.resources.getIdentifier(if(id>=10)"i000${id}" else "i0000${id}",
+            "drawable", context.packageName)
+
+
+        AlertDialog(
+            onDismissRequest = { onDismiss() },
+            title = { Text(text = tittle)},
+            text = {
+                Image(painter = painterResource(id = imageId),
+                    contentDescription = "Image complete",
+                    modifier = Modifier
+                        .width(500.dp)
+                        .height(400.dp)
+                        .padding(10.dp))
+
+                Text(text = description)
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onDismiss()
+                    }
+                ) {
+                    Text("Cerrar")
+                }
+            }
+        )
+
+
     }
 
     fun selectPictureGalery() {
@@ -166,8 +215,10 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun ScreenOrganisms(onClickSelectedCamera: () -> Unit,onClickSelectedGallery: () -> Unit) {
-    var showDetail = true
+fun ScreenOrganisms(
+    onClickSelectedCamera: () -> Unit,
+    onClickSelectedGallery: () -> Unit
+) {
     Column (modifier = Modifier
         .fillMaxSize()
         .background(
@@ -176,17 +227,14 @@ fun ScreenOrganisms(onClickSelectedCamera: () -> Unit,onClickSelectedGallery: ()
         ),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally){
-        if(showDetail){
-            ButtonsOrganisms(onClickSelectedCamera = onClickSelectedCamera,
-                onClickSelectedGallery = onClickSelectedGallery )
-            Text(text = "Attach your traffic sign here...",
-                color = Color.Black,
-                fontSize = 18.sp,
-                modifier = Modifier.padding(20.dp)
-            )
-        }else{
 
-        }
+        ButtonsOrganisms(onClickSelectedCamera = onClickSelectedCamera,
+            onClickSelectedGallery = onClickSelectedGallery )
+        Text(text = "Attach your traffic sign here...",
+            color = Color.Black,
+            fontSize = 18.sp,
+            modifier = Modifier.padding(20.dp)
+        )
     }
 }
 
